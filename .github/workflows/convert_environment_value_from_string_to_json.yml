@@ -1,0 +1,29 @@
+name: "Convert environment vaule from string to JSON"
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@main
+
+      - name: Fetch environment value and convert it to json
+        env:
+          AUTHOR: ${{ vars.AUTHOR }}
+        run: |
+          chmod +x scripts/export_json_key_value_to_environment_variable.sh
+          scripts/export_json_key_value_to_environment_variable.sh ${{ env.AUTHOR }}
+
+          echo "Environment value: ${{ vars.AUTHOR }}"
+          echo "Name: $name"
+          echo "Github Username: $github_username"
+
+      - name: Use the value; Available after the previous step
+        run: |
+          echo "Name: $name"
+          echo "Github Username: $github_username"
