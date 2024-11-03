@@ -1,0 +1,72 @@
+name: Laravel Deployment
+concurrency: production_environment
+
+on:
+  workflow_call:
+    inputs:
+      php-version:
+        description: "PHP version"
+        required: false
+        default: "8.3"
+        type: string
+      deploy-namespace:
+        description: "Deploy Namespace"
+        required: false
+        default: ${{ github.ref_name }}
+        type: string
+
+jobs:
+  deploy-laravel-application:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@master
+        with:
+          php-version: ${{ inputs.php-version }}
+
+      - name: Sanitize github ref name
+        run: |
+          # Get the branch name from github.ref_name
+          deploy_namespace="${{ inputs.deploy-namespace }}"
+
+          # Replace '.' with '_'
+          sanitized_deploy_namespace="${deploy_namespace//./_}"
+
+          # Export the sanitized branch name as an environment variable
+          echo "SANITIZED_DEPLOY_NAMESPACE=${sanitized_deploy_namespace}" >> $GITHUB_ENV
+
+          # Print the sanitized branch name for debugging
+          echo "Sanitized Branch Name: $SANITIZED_DEPLOY_NAMESPACE"
+
+      - name: Get Composer Cache Directory
+        id: composer-cache
+        run: |
+          echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-composer-
+
+      - name: Install Dependencies
+        run: composer install -q --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist
+
+      - name: Fetch Vault Path and Pass it to env variable
+        env:
+          VAULT_PATH: ${{ vars.VAULT_PATH }}
+        run: .github/scripts/export_json_key_value_to_environment_variable.sh ${{ env.VAULT_PATH }} 'VAULT_PATH'
+
+      - name: Deploy
+        uses: deployphp/action@master
+        env:
+          SECRET_PATH: "VAULT_PATH_${SANITIZED_DEPLOY_NAMESPACE}"
+        with:
+          private-key: ${{ secrets.PRIVATE_KEY }}
+          dep: deploy ${{ inputs.deploy-namespace }} -o vault_addr=${{ secrets.VAULT_ADDR }} -o secret_path=${{ env.SECRET_PATH }} -o vault_token=${{ secrets.VAULT_TOKEN }}
+          verbosity: -vvv
