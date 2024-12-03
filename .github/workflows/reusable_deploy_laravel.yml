@@ -78,7 +78,10 @@ jobs:
       - name: Fetch Vault Path and Pass it to env variable
         env:
           VAULT_PATH: ${{ secrets.VAULT_PATH }}
-        run: https://raw.githubusercontent.com/maskeynihal/gh-actions/refs/heads/main/scripts/export_json_key_value_to_environment_variable.sh ${{ env.VAULT_PATH }} 'VAULT_PATH'
+        run: |
+          curl -o export_json_key_value_to_environment_variable.sh https://raw.githubusercontent.com/maskeynihal/gh-actions/refs/heads/main/scripts/export_json_key_value_to_environment_variable.sh
+          chmod +x export_json_key_value_to_environment_variable.sh
+          ./export_json_key_value_to_environment_variable.sh ${{ env.VAULT_PATH }} 'VAULT_PATH'
 
       - name: Deploy
         uses: deployphp/action@master
