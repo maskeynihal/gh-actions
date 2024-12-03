@@ -52,8 +52,10 @@ jobs:
           # Replace '.' with '_'
           sanitized_deploy_namespace="${deploy_namespace//./_}"
 
+          echo "Sanitized deploy namespace: $sanitized_deploy_namespace"
+
           # Export the sanitized branch name as an environment variable
-          echo "SANITIZED_DEPLOY_NAMESPACE=${sanitized_deploy_namespace}" >> $GITHUB_ENV
+          echo "SANITIZED_DEPLOY_NAMESPACE=${sanitized_deploy_namespace}" >> "$GITHUB_ENV"
 
           # Print the sanitized branch name for debugging
           echo "Sanitized Branch Name: $SANITIZED_DEPLOY_NAMESPACE"
