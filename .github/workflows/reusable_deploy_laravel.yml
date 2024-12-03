@@ -83,7 +83,7 @@ jobs:
       - name: Deploy
         uses: deployphp/action@master
         env:
-          SECRET_PATH: "${{ env[VAULT_PATH_${{ env.SANITIZED_DEPLOY_NAMESPACE }}] }}"
+          SECRET_PATH: ${{ env[format('VAULT_PATH_{0}', env.SANITIZED_DEPLOY_NAMESPACE)] }}
         with:
           private-key: ${{ secrets.PRIVATE_KEY }}
           dep: deploy ${{ inputs.deploy-namespace }} -o vault_addr=${{ secrets.VAULT_ADDR }} -o secret_path=${{ env.SECRET_PATH }} -o vault_token=${{ secrets.VAULT_TOKEN }}
