@@ -41,7 +41,10 @@ process_json() {
     if [ -n "$GITHUB_ACTIONS" ]; then
       echo "Running in GitHub Actions"
 
-      echo "${sanitized_key}"="${value}" >> "$GITHUB_ENV"
+      vault_key="VAULT_PATH_${sanitized_key}"
+      echo "KEY: $vault_key"
+      echo "VALUE: $value"
+      echo "${vault_key}"="${value}" >> "$GITHUB_ENV"
     fi
 
   done <<< "$key_value_pairs"
