@@ -14,6 +14,7 @@ json_to_key_value_pairs() {
 # Main function to handle the input JSON and export variables
 process_json() {
   local json_string="$1"
+  local prefix="$2"
 
   echo "Input JSON: $json_string"
 
@@ -41,7 +42,7 @@ process_json() {
     if [ -n "$GITHUB_ACTIONS" ]; then
       echo "Running in GitHub Actions"
 
-      vault_key="VAULT_PATH_${sanitized_key}"
+      vault_key="${prefix}${sanitized_key}"
       echo "KEY: $vault_key"
       echo "VALUE: $value"
       echo "${vault_key}"="${value}" >> "$GITHUB_ENV"

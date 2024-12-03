@@ -44,21 +44,21 @@ jobs:
         with:
           php-version: ${{ inputs.php-version }}
 
-      - name: Sanitize github ref name
+      - name: Fetch Vault Path and Pass it to env variable
+        env:
+          VAULT_PATH: ${{ secrets.VAULT_PATH }}
         run: |
-          # Get the branch name from github.ref_name
-          deploy_namespace="${{ inputs.deploy-namespace }}"
+          # Fetch the JSON data from the Vault path
+          vault_data=${{ env.VAULT_PATH }}
 
-          # Replace '.' with '_'
-          sanitized_deploy_namespace="${deploy_namespace//./_}"
+          # echo $vault_data > vault_data.json
 
-          echo "Sanitized deploy namespace: $sanitized_deploy_namespace"
+          # vault_data=$(jq -c '.' './vault_data.json')
 
-          # Export the sanitized branch name as an environment variable
-          echo "SANITIZED_DEPLOY_NAMESPACE=${sanitized_deploy_namespace}" >> "$GITHUB_ENV"
+          # Extract the value using jq
+          secret_value=$(echo "$vault_data" | jq -r '.["${{ inputs.deploy-namespace }}"]')
 
-          # Print the sanitized branch name for debugging
-          echo "Sanitized Branch Name: $SANITIZED_DEPLOY_NAMESPACE"
+          echo "SECRET_PATH=${secret_value}" >> "$GITHUB_ENV"
 
       - name: Get Composer Cache Directory
         id: composer-cache
@@ -75,18 +75,10 @@ jobs:
       - name: Install Dependencies
         run: composer install -q --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist
 
-      - name: Fetch Vault Path and Pass it to env variable
-        env:
-          VAULT_PATH: ${{ secrets.VAULT_PATH }}
-        run: |
-          curl -o export_json_key_value_to_environment_variable.sh https://raw.githubusercontent.com/maskeynihal/gh-actions/refs/heads/main/scripts/export_json_key_value_to_environment_variable.sh
-          chmod +x export_json_key_value_to_environment_variable.sh
-          ./export_json_key_value_to_environment_variable.sh ${{ env.VAULT_PATH }} 'VAULT_PATH'
-
       - name: Deploy
         uses: deployphp/action@master
         env:
-          SECRET_PATH: ${{ env[format('VAULT_PATH_{0}', env.SANITIZED_DEPLOY_NAMESPACE)] }}
+          SECRET_PATH: ${{ env.SECRET_PATH }}
         with:
           private-key: ${{ secrets.PRIVATE_KEY }}
           dep: deploy ${{ inputs.deploy-namespace }} -o vault_addr=${{ secrets.VAULT_ADDR }} -o secret_path=${{ env.SECRET_PATH }} -o vault_token=${{ secrets.VAULT_TOKEN }}
