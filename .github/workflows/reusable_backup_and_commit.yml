@@ -1,0 +1,170 @@
+name: Backup and Commit to Repository
+
+on:
+  workflow_call:
+    inputs:
+      deploy-namespace:
+        description: "Deploy Namespace for SSH connection"
+        required: true
+        type: string
+      target-repo:
+        description: "Target repository with owner (e.g., owner/repo)"
+        required: true
+        type: string
+      target-branch:
+        description: "Target branch to commit to"
+        required: false
+        default: "main"
+        type: string
+      backup-directory:
+        description: "Directory to store backups in the target repo"
+        required: false
+        default: "backups"
+        type: string
+      private-key-name:
+        description: "Name of the secret containing the private key"
+        required: false
+        default: "PRIVATE_KEY"
+        type: string
+    secrets:
+      GH_PAT:
+        description: "GitHub Personal Access Token with repo access"
+        required: true
+
+jobs:
+  backup-and-commit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code (source repository)
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@master
+        with:
+          php-version: "8.3"
+
+      - name: Install Dependencies
+        run: composer install -q --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist
+
+      - name: Run Backup on Remote Server
+        id: backup
+        env:
+          PRIVATE_KEY: ${{ secrets[inputs.private-key-name] }}
+        run: |
+          # Run backup on remote server using deployer (on specified namespace)
+          ./vendor/bin/dep run 'php artisan backup:run' ${{ inputs.deploy-namespace }}
+
+          # Determine app name on remote and locate latest backup zip
+          APP_NAME=$(./vendor/bin/dep run "php artisan config:show app.name --no-ansi | sed -E 's/^.*[. ]{3,}//' | tr -d '\r'" ${{ inputs.deploy-namespace }})
+
+          # Try the app-name based path first, then fall back to any app-named folder
+          BACKUP_PATH=$(./vendor/bin/dep run "ls -t \"storage/app/$APP_NAME\"/*.zip 2>/dev/null | head -n 1" ${{ inputs.deploy-namespace }})
+          if [ -z "$BACKUP_PATH" ]; then
+            BACKUP_PATH=$(./vendor/bin/dep run 'ls -t storage/app/*/*.zip 2>/dev/null | head -n 1' ${{ inputs.deploy-namespace }})
+          fi
+
+          echo "backup-path=$BACKUP_PATH" >> $GITHUB_OUTPUT
+          echo "Backup created at: $BACKUP_PATH"
+
+      - name: Copy Backup File to Runner
+        id: copy-backup
+        env:
+          PRIVATE_KEY: ${{ secrets[inputs.private-key-name] }}
+        run: |
+          # Create local backup directory
+          mkdir -p ./temp-backups
+
+          # Get backup file from remote server
+          REMOTE_BACKUP="${{ steps.backup.outputs.backup-path }}"
+          BACKUP_FILENAME=$(basename "$REMOTE_BACKUP")
+
+          # Copy file from remote server using deployer (quote path to handle spaces)
+          ./vendor/bin/dep run "cat \"$REMOTE_BACKUP\"" ${{ inputs.deploy-namespace }} > "./temp-backups/$BACKUP_FILENAME"
+
+          echo "backup-filename=$BACKUP_FILENAME" >> $GITHUB_OUTPUT
+          echo "local-backup-path=./temp-backups/$BACKUP_FILENAME" >> $GITHUB_OUTPUT
+
+          # Verify file was copied
+          if [ -f "./temp-backups/$BACKUP_FILENAME" ]; then
+            FILE_SIZE=$(ls -lh "./temp-backups/$BACKUP_FILENAME" | awk '{print $5}')
+            echo "Backup file copied successfully: $BACKUP_FILENAME ($FILE_SIZE)"
+          else
+            echo "Error: Backup file not found"
+            exit 1
+          fi
+
+      - name: Checkout Target Repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.target-repo }}
+          token: ${{ secrets.GH_PAT }}
+          path: target-repo
+          ref: ${{ inputs.target-branch }}
+
+      - name: Copy Backup to Target Repository
+        run: |
+          # Create backup directory in target repo if it doesn't exist
+          mkdir -p "target-repo/${{ inputs.backup-directory }}"
+
+          # Copy backup file
+          cp "${{ steps.copy-backup.outputs.local-backup-path }}" "target-repo/${{ inputs.backup-directory }}/"
+
+          echo "Backup copied to target repository"
+
+      - name: Commit and Push Backup
+        working-directory: target-repo
+        run: |
+          # Configure git
+          git config user.name "GitHub Actions Bot"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Ensure we're on a branch (not detached HEAD) and based on the requested ref
+          TARGET_BRANCH="${{ inputs.target-branch }}"
+          if ! git symbolic-ref -q HEAD >/dev/null; then
+            echo "Detached HEAD at $(git rev-parse --short HEAD). Creating/resetting branch $TARGET_BRANCH."
+            git checkout -B "$TARGET_BRANCH"
+          else
+            CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+            if [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
+              git checkout -B "$TARGET_BRANCH"
+            fi
+          fi
+
+          # Add backup file
+          git add "${{ inputs.backup-directory }}/${{ steps.copy-backup.outputs.backup-filename }}"
+
+          # Create commit message with date and description
+          CURRENT_DATE=$(date '+%Y-%m-%d %H:%M:%S')
+          COMMIT_MSG="Backup: ${{ inputs.deploy-namespace }} - $CURRENT_DATE
+
+          Automated backup from ${{ inputs.deploy-namespace }}
+          Backup file: ${{ steps.copy-backup.outputs.backup-filename }}
+          Triggered by: ${{ github.actor }}
+          Workflow: ${{ github.workflow }}
+          Run ID: ${{ github.run_id }}"
+
+          # Commit and push
+          git commit -m "$COMMIT_MSG" || echo "No changes to commit"
+          git push origin ${{ inputs.target-branch }}
+
+          echo "✓ Backup committed and pushed successfully"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -rf ./temp-backups
+          echo "Cleanup completed"
+
+      - name: Summary
+        if: success()
+        run: |
+          echo "## Backup Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deploy Namespace:** ${{ inputs.deploy-namespace }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Target Repository:** ${{ inputs.target-repo }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Target Branch:** ${{ inputs.target-branch }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Backup File:** ${{ steps.copy-backup.outputs.backup-filename }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Backup Directory:** ${{ inputs.backup-directory }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✓ Backup completed successfully and committed to repository" >> $GITHUB_STEP_SUMMARY
