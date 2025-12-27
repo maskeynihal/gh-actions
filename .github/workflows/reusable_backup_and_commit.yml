@@ -52,7 +52,14 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets[inputs.private-key-name] }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null || true
+          
+          # Configure SSH to skip host key verification for CI/CD
+          cat > ~/.ssh/config <<EOF
+          Host *
+            StrictHostKeyChecking no
+            UserKnownHostsFile=/dev/null
+          EOF
+          chmod 600 ~/.ssh/config
 
       - name: Run Backup on Remote Server
         id: backup
