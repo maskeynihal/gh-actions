@@ -47,10 +47,15 @@ jobs:
       - name: Install Dependencies
         run: composer install -q --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist
 
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets[inputs.private-key-name] }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null || true
+
       - name: Run Backup on Remote Server
         id: backup
-        env:
-          PRIVATE_KEY: ${{ secrets[inputs.private-key-name] }}
         run: |
           # Run backup on remote server using deployer (on specified namespace)
           ./vendor/bin/dep run 'php artisan backup:run' ${{ inputs.deploy-namespace }}
@@ -69,8 +74,6 @@ jobs:
 
       - name: Copy Backup File to Runner
         id: copy-backup
-        env:
-          PRIVATE_KEY: ${{ secrets[inputs.private-key-name] }}
         run: |
           # Create local backup directory
           mkdir -p ./temp-backups
@@ -154,6 +157,7 @@ jobs:
         if: always()
         run: |
           rm -rf ./temp-backups
+          rm -f ~/.ssh/id_rsa
           echo "Cleanup completed"
 
       - name: Summary
